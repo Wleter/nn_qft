@@ -18,7 +18,6 @@ class QFTProblem(Protocol):
         """
         ...
 
-
 @dataclass(frozen = True)
 class FockSpaceMetropolis:
     problem: QFTProblem
@@ -31,8 +30,10 @@ class FockSpaceMetropolis:
     def new_configuration(self, n: int) -> npt.NDArray:
         volume = self.problem.volume()
 
-        return np.array(self.rng.uniform(size=(n, volume.shape[1]))) * volume
+        return np.array(self.rng.uniform(size = (n, volume.shape[1]))) * volume
 
+    # todo! use batching, list of [batch, nParticlesMax, nDim], 
+    # where nParticlesMax is the maximum number of particles in a batch
     def step(self, x_n: npt.NDArray) -> Optional[npt.NDArray]:
         volume = self.problem.volume()
         choice = self.rng.uniform(0, 1)
@@ -46,7 +47,7 @@ class FockSpaceMetropolis:
         elif self.p_minus + self.p_plus > choice:
             x_new = self.remove_one(x_n)
             if x_new is None:
-                return None
+                return x_n
 
             acceptance = np.minimum(1, 1 / np.prod(volume) * # todo! assuming boson symmetry
                 np.abs(self.problem.get_amplitude(x_new) / self.problem.get_amplitude(x_n)) ** 2)
@@ -58,7 +59,7 @@ class FockSpaceMetropolis:
         if acceptance > acceptance_rng:
             return x_new
         else:
-            return None
+            return x_n
 
 
     def add_new(self, x_n: npt.NDArray) -> npt.NDArray:
@@ -86,6 +87,6 @@ class FockSpaceMetropolis:
         x_n_changed = x_n + dx_n
         for col in range(volume.shape[1]):
             vol = volume[0, col]
-            x_n_changed[:, col] = x_n_changed[:, col].clip(0, vol)
+            x_n_changed[:, col] = x_n_changed[:, col] % vol
 
         return x_n_changed
