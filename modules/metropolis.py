@@ -1,22 +1,10 @@
 from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
-from typing import Optional, Protocol
+from typing import Optional
 
-# todo! maybe change to [batch, nParticles, nDim]
-class QFTProblem(Protocol):
-    def volume(self) -> npt.NDArray:
-        """
-        Gets the dimension sizes that are of shape [1, nDim]
-        """
-        ...
-    
-    
-    def get_amplitude(self, x_n: npt.NDArray) -> float:
-        """
-        Gets the amplitude of particle configuration of shape [nParticles, nDim]
-        """
-        ...
+import tensorflow as tf
+from modules.qft_problem import QFTProblem
 
 @dataclass(frozen = True)
 class FockSpaceMetropolis:
@@ -27,13 +15,13 @@ class FockSpaceMetropolis:
 
     rng: np.random.Generator = np.random.default_rng()
 
-    def new_configuration(self, n: int) -> npt.NDArray:
+    def new_configuration(self, batch: int, n: int) -> tf.Tensor:
         volume = self.problem.volume()
+        shape = (batch, n, int(volume.shape[-1]))
+        sample = self.rng.uniform(0., 1., size = shape)
 
-        return np.array(self.rng.uniform(size = (n, volume.shape[1]))) * volume
+        return tf.Variable(sample) * volume
 
-    # todo! use batching, list of [batch, nParticlesMax, nDim], 
-    # where nParticlesMax is the maximum number of particles in a batch
     def step(self, x_n: npt.NDArray) -> Optional[npt.NDArray]:
         volume = self.problem.volume()
         choice = self.rng.uniform(0, 1)
@@ -41,8 +29,8 @@ class FockSpaceMetropolis:
 
         if self.p_plus > choice:
             x_new = self.add_new(x_n)
-            acceptance = np.minimum(1, np.prod(volume) * # todo! assuming boson symmetry
-                np.abs(self.problem.get_amplitude(x_new) / self.problem.get_amplitude(x_n)) ** 2)
+            acceptance = tf.minimum(1, np.prod(volume) * # todo! assuming boson symmetry
+                tf.abs(self.problem.get_amplitude(x_new) / self.problem.get_amplitude(x_n)) ** 2)
 
         elif self.p_minus + self.p_plus > choice:
             x_new = self.remove_one(x_n)
