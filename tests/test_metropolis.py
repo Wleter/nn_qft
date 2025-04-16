@@ -1,3 +1,4 @@
+import tensorflow as tf
 from modules.metropolis import *
 import unittest
 
@@ -6,10 +7,10 @@ class SimpleProblem(QFTProblem):
     size: float = 10
 
     def volume(self) -> npt.NDArray:
-        return np.array([10, 100]).reshape((1, 2))
+        return np.array([10, 100], dtype=np.float32).reshape((1, 2))
 
-    def get_amplitude(self, x_n: npt.NDArray) -> float:
-        return 1 / np.power(np.prod(self.volume()), x_n.shape[0] / 2)
+    def get_amplitude(self, x_n: tf.Tensor) -> tf.Tensor:
+        return 1 / tf.pow(tf.reduce_prod(self.volume()), x_n.shape[1] / 2)
 
 class TestMetropolis(unittest.TestCase):
     def test_metropolis(self):

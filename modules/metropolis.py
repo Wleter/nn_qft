@@ -29,20 +29,36 @@ class FockSpaceMetropolis:
 
         if self.p_plus > choice:
             x_new = self.add_new(x_n)
-            acceptance = tf.minimum(1, np.prod(volume) * # todo! assuming boson symmetry
-                tf.abs(self.problem.get_amplitude(x_new) / self.problem.get_amplitude(x_n)) ** 2)
+            x_new_t = tf.expand_dims(tf.convert_to_tensor(x_new), axis = 0)
+            x_n_t = tf.expand_dims(tf.convert_to_tensor(x_n), axis = 0)
+
+            ratio = self.problem.get_amplitude(x_new_t) / self.problem.get_amplitude(x_n_t)
+            ratio = ratio.numpy()
+
+            acceptance = np.minimum(1, np.prod(volume) * np.abs(ratio) ** 2) # todo! assuming boson symmetry
 
         elif self.p_minus + self.p_plus > choice:
             x_new = self.remove_one(x_n)
             if x_new is None:
                 return x_n
+            
+            x_new_t = tf.expand_dims(tf.convert_to_tensor(x_new), axis = 0)
+            x_n_t = tf.expand_dims(tf.convert_to_tensor(x_n), axis = 0)
 
-            acceptance = np.minimum(1, 1 / np.prod(volume) * # todo! assuming boson symmetry
-                np.abs(self.problem.get_amplitude(x_new) / self.problem.get_amplitude(x_n)) ** 2)
+            ratio = self.problem.get_amplitude(x_new_t) / self.problem.get_amplitude(x_n_t)
+            ratio = ratio.numpy()
+
+            acceptance = np.minimum(1, np.abs(ratio) ** 2 / np.prod(volume)) # todo! assuming boson symmetry
         else:
             x_new = self.change_positions(x_n)
-            acceptance = np.minimum(1, 
-                np.abs(self.problem.get_amplitude(x_new) / self.problem.get_amplitude(x_n)) ** 2)
+
+            x_new_t = tf.expand_dims(tf.convert_to_tensor(x_new), axis = 0)
+            x_n_t = tf.expand_dims(tf.convert_to_tensor(x_n), axis = 0)
+
+            ratio = self.problem.get_amplitude(x_new_t) / self.problem.get_amplitude(x_n_t)
+            ratio = ratio.numpy()
+
+            acceptance = np.minimum(1, np.abs(ratio) ** 2)
 
         if acceptance > acceptance_rng:
             return x_new
@@ -53,7 +69,7 @@ class FockSpaceMetropolis:
     def add_new(self, x_n: npt.NDArray) -> npt.NDArray:
         volume = self.problem.volume()
 
-        x = np.array(self.rng.uniform(size=volume.shape)) * volume
+        x = np.array(self.rng.uniform(size=volume.shape), dtype=np.float32) * volume
         x.reshape(volume.shape)
         
         return np.vstack([x_n, x])
@@ -62,10 +78,10 @@ class FockSpaceMetropolis:
         if x_n.shape[0] == 0:
             return None
         
-        index = np.random.choice(x_n.shape[0])
+        index = self.rng.choice(x_n.shape[0])
 
         return np.delete(x_n, index, 0)
-    
+
     def change_positions(self, x_n: npt.NDArray) -> npt.NDArray:
         volume = self.problem.volume()
 
