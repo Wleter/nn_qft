@@ -15,12 +15,12 @@ class FockSpaceMetropolis:
 
     rng: np.random.Generator = np.random.default_rng()
 
-    def new_configuration(self, batch: int, n: int) -> tf.Tensor:
+    def new_configuration(self, n: int) -> tf.Tensor:
         volume = self.problem.volume()
-        shape = (batch, n, int(volume.shape[-1]))
+        shape = (n, int(volume.shape[-1]))
         sample = self.rng.uniform(0., 1., size = shape)
 
-        return tf.Variable(sample) * volume
+        return sample * volume
 
     def step(self, x_n: npt.NDArray) -> npt.NDArray:
         volume = self.problem.volume()
