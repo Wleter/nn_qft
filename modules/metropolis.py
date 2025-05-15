@@ -22,7 +22,7 @@ class FockSpaceMetropolis:
 
         return tf.Variable(sample) * volume
 
-    def step(self, x_n: npt.NDArray) -> Optional[npt.NDArray]:
+    def step(self, x_n: npt.NDArray) -> npt.NDArray:
         volume = self.problem.volume()
         choice = self.rng.uniform(0, 1)
         acceptance_rng = self.rng.uniform(0, 1)

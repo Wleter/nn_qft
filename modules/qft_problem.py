@@ -10,7 +10,6 @@ class QFTProblem(Protocol):
         """
         ...
     
-    
     def get_amplitude(self, x_n: tf.Tensor) -> tf.Tensor:
         """
         Gets the amplitude of particle configuration of shape [1, nParticles, nDim]
@@ -18,12 +17,6 @@ class QFTProblem(Protocol):
         """
         ...
 
-    def get_amplitude(self, x_n: tf.Tensor) -> tf.Tensor:
-        """
-        Gets the amplitude of particle configuration of shape [1, nParticles, nDim]
-        and returns single element tensor.
-        """
-        ...
 
 class QFTHamiltonian(Protocol):
     def local_energy(self, x_n: tf.Tensor, model: QFTProblem) -> tf.Tensor:
