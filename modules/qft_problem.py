@@ -1,27 +1,37 @@
+from dataclasses import dataclass
 import numpy.typing as npt
 from typing import Protocol
-
 import tensorflow as tf
+
+@dataclass
+class ConfigurationBatch:
+    x_n: npt.NDArray
+    """
+    Current configurations in a batch of shape [nBatch, nMax, nDim]
+    """
+    n_s: npt.NDArray
+    """
+    Current configurations number of particles in a batch of shape [nBatch]
+    """
 
 class QFTProblem(Protocol):
     def volume(self) -> npt.NDArray:
         """
-        Gets the dimension sizes that are of shape [1, nDim]
+        Gets the dimension sizes that are of shape [nDim]
         """
         ...
     
-    def get_amplitude(self, x_n: tf.Tensor) -> tf.Tensor:
+    def get_amplitude(self, configurations: ConfigurationBatch) -> tf.Tensor:
         """
-        Gets the amplitude of particle configuration of shape [1, nParticles, nDim]
+        Gets the amplitude of particle configuration of shape [nBatch, nParticles, nDim]
         and returns single element tensor.
         """
         ...
 
-
 class QFTHamiltonian(Protocol):
-    def local_energy(self, x_n: tf.Tensor, model: QFTProblem) -> tf.Tensor:
+    def local_energy(self, configurations: ConfigurationBatch, model: QFTProblem) -> tf.Tensor:
         """
-        Gets the expectation energy of the current QFT model in a batch.
-         - x_n shape [nParticles, nDim]
+        Gets the local energies of the configuration given current QFT model.
+         - x_n shape [nBatch, nParticles, nDim] returns [nBatch]
         """
         ...
