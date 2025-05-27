@@ -21,7 +21,7 @@ class QFTProblem(Protocol):
         """
         ...
     
-    def get_amplitude(self, configurations: ConfigurationBatch) -> tf.Tensor:
+    def get_amplitude(self, x_n: tf.Tensor, ns: npt.NDArray, training: bool = False) -> tf.Tensor:
         """
         Gets the amplitude of particle configuration of shape [nBatch, nParticles, nDim]
         and returns single element tensor.
@@ -29,9 +29,9 @@ class QFTProblem(Protocol):
         ...
 
 class QFTHamiltonian(Protocol):
-    def local_energy(self, configurations: ConfigurationBatch, model: QFTProblem) -> tf.Tensor:
+    def local_energy(self, x_n: tf.Tensor, ns: npt.NDArray, model: QFTProblem) -> tf.Tensor:
         """
         Gets the local energies of the configuration given current QFT model.
-         - x_n shape [nBatch, nParticles, nDim] returns [nBatch]
+         - returns [nBatch]
         """
         ...
