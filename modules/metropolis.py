@@ -6,6 +6,7 @@ from typing import Optional
 import tensorflow as tf
 from modules.qft_problem import ConfigurationBatch, QFTProblem
 
+# todo! still a little different results from without batching
 @dataclass(frozen = True)
 class FockSpaceMetropolis:
     problem: QFTProblem
@@ -38,8 +39,8 @@ class FockSpaceMetropolis:
         remove_mask = ((self.p_plus + self.p_minus) > choice) * (np.logical_not(add_mask))
         vary_mask = np.logical_not(np.logical_or(add_mask, remove_mask))
 
-        x_new = configurations.x_n
-        n_new = configurations.n_s
+        x_new = np.copy(configurations.x_n)
+        n_new = np.copy(configurations.n_s)
 
         added = self.add_new(ConfigurationBatch(x_new[add_mask, :, :], n_new[add_mask]))
         removed = self.remove_one(ConfigurationBatch(x_new[remove_mask, :, :], n_new[remove_mask]))
@@ -60,9 +61,9 @@ class FockSpaceMetropolis:
         ratio = new_ampiltude / last_amplitude # type: ignore
         ratio = ratio.numpy()
 
-        reject_add = np.minimum(1, np.prod(volume) * np.abs(ratio) ** 2) <= acceptance_rng
-        reject_remove = np.minimum(1, np.abs(ratio) ** 2 / np.prod(volume)) <= acceptance_rng
-        reject_vary = np.minimum(1, np.abs(ratio) ** 2) <= acceptance_rng
+        reject_add = np.minimum(1, np.prod(volume) * np.abs(ratio) ** 2) < acceptance_rng
+        reject_remove = np.minimum(1, np.abs(ratio) ** 2 / np.prod(volume)) < acceptance_rng
+        reject_vary = np.minimum(1, np.abs(ratio) ** 2) < acceptance_rng
 
         reject_add = reject_add * add_mask
         reject_remove = reject_remove * remove_mask
