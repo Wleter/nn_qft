@@ -10,12 +10,12 @@ from modules.qft_problem import QFTProblem
 class KineticTerm:
     mass: float
 
-    def local_energy(self, x_n: tf.Tensor, model: QFTProblem) -> tf.Tensor:
+    def local_energy(self, x_n: tf.Tensor, n_s: npt.NDArray, model: QFTProblem) -> tf.Tensor:
         with tf.GradientTape() as tape2:
             with tf.GradientTape() as tape1:
                 tape1.watch(x_n)
                 tape2.watch(x_n)
-                psi_n = model.get_amplitude(x_n)
+                psi_n = model.get_amplitude(x_n, n_s)
                 psi_n_log = tf.math.log(psi_n)
 
             gradient = tape1.gradient(psi_n_log, x_n)
