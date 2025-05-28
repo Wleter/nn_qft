@@ -22,16 +22,23 @@ class KineticTerm:
 
         hessian = tape2.jacobian(gradient, x_n)
         laplacian = tf.einsum("bpibpi->bpi", hessian)
-            
-        return -1 / (2 * self.mass) * tf.reduce_sum(laplacian + tf.pow(gradient, 2))
+
+# mask is not needed since amplitude should not depend on non existent positions
+
+        # mask = tf.sequence_mask(n_s, maxlen = x_n.shape[-2])
+        # mask = tf.cast(mask, x_n.dtype)
+        # mask = tf.expand_dims(mask, axis=-1)
+        # mask = tf.tile(mask, [1, 1, x_n.shape[-1]])
+
+        return -1 / (2 * self.mass) * tf.reduce_sum(laplacian + tf.pow(gradient, 2), axis = [1, 2])
 
 @dataclass
 class ExternalPotential:
-    potential: Callable[[tf.Tensor], tf.Tensor]
+    potential: Callable[[tf.Tensor, npt.NDArray], tf.Tensor]
 
     @staticmethod
     def chemical_potential(value: float) -> 'ExternalPotential':
-        return ExternalPotential(lambda x: value * tf.ones((x.shape[0], 1)))
+        return ExternalPotential(lambda x, n: tf.cast(n, tf.float32) * value) # type: ignore
 
-    def local_energy(self, x_n: tf.Tensor, model: QFTProblem) -> tf.Tensor:
-        return self.potential(x_n)
+    def local_energy(self, x_n: tf.Tensor, n_s: npt.NDArray, model: QFTProblem) -> tf.Tensor:
+        return self.potential(x_n, n_s)
