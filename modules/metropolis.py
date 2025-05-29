@@ -110,3 +110,23 @@ class FockSpaceMetropolis:
             x_n_changed[:, :, col] = (x_n_changed[:, :, col] % vol)
 
         return ConfigurationBatch(x_n_changed, configurations.n_s)
+
+def make_dataset(problem: QFTProblem, batch: int, n_max: int, n_init = 1, rng = np.random.default_rng()) -> tf.data.Dataset:
+    metropolis = FockSpaceMetropolis(problem, n_max, rng=rng)
+    n_dim = problem.volume().shape[-1]
+
+    def metropolis_step():
+        x_recent, amplitude_recent = metropolis.new_configuration(batch, n_init)
+        while True:
+            x_recent, amplitude_recent = metropolis.step(x_recent, amplitude_recent)
+            yield x_recent.x_n, x_recent.n_s
+
+    dataset = tf.data.Dataset.from_generator(
+        metropolis_step,
+        output_signature = (
+            tf.TensorSpec(shape=(batch, n_max, n_dim), dtype=tf.float32, name = "configuration"), # type: ignore
+            tf.TensorSpec(shape=(batch), dtype=tf.int32, name = "particle_no") # type: ignore
+        )
+    )
+
+    return dataset

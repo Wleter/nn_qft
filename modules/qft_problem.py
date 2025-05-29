@@ -29,7 +29,7 @@ class QFTProblem(Protocol):
         ...
 
 class QFTHamiltonian(Protocol):
-    def local_energy(self, x_n: tf.Tensor, ns: npt.NDArray, model: QFTProblem) -> tf.Tensor:
+    def local_energy(self, x_n: tf.Tensor, ns: npt.NDArray, model: QFTProblem, training = False) -> tf.Tensor:
         """
         Gets the local energies of the configuration given current QFT model.
          - returns [nBatch]
