@@ -97,6 +97,7 @@ class QFTNeuralNet(keras.Model):
 
         return tf.squeeze(y1 * y2, axis = 1)
 
+    # todo! add metrics think what they should accept as an input
     def compile(self, optimizer, hamiltonian: QFTHamiltonian, metrics=None, **kwargs):
         super().compile(optimizer=optimizer, metrics=None, **kwargs)
 
