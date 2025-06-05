@@ -65,10 +65,14 @@ class QFTNeuralNet(keras.Model):
     def __init__(self, volume: npt.NDArray, ds1: DeepSets, ds2: DeepSets, steps_per_epoch = 1):
         super(QFTNeuralNet, self).__init__()
 
-        self.volume_arr = volume
+        self.volume_arr = np.astype(volume, np.float32)
 
         assert volume.shape[-1] == ds1.input_dim, "Volume of the problem and input_dim of the deep sets should be the same"
         assert volume.shape[-1] == ds1.input_dim, "Volume of the problem and input_dim of the deep sets should be the same"
+
+        self.loss_tracker = keras.metrics.Mean(name = "loss")
+        self.energy_tracker = keras.metrics.Mean(name = "energy")
+        self.particle_tracker = keras.metrics.Mean(name = "mean_particle_number")
 
         self.ds1 = ds1
         self.ds2 = ds2
@@ -83,22 +87,22 @@ class QFTNeuralNet(keras.Model):
         return self.call(x_n, ns, training = training)
 
     def call(self, x, n, training=False):
-        max_len = tf.reduce_max(n) + 1
-        x = x[:, :max_len, :]
+        # max_len = tf.reduce_max(n) + 1
+        # x = x[:, :max_len, :]
+        x_norm = x / self.volume_arr
 
-        mask_n = tf.sequence_mask(n, maxlen = x.shape[-2])
-        mask_n = tf.cast(mask_n, x.dtype)
+        mask_n = tf.sequence_mask(n, maxlen = x_norm.shape[1])
+        mask_n = tf.cast(mask_n, x_norm.dtype)
         mask_n = tf.expand_dims(mask_n, -1)
 
-        y1 = self.ds1(x, mask_n, training=training)
+        y1 = self.ds1(x_norm, mask_n, training=training)
 
-        x_diff, mask_ij = x_difference(x, mask_n)
+        x_diff, mask_ij = x_difference(x_norm, mask_n)
         y2 = self.ds2(x_diff, mask_ij, training=training)
 
-        return tf.squeeze(y1 * y2, axis = 1)
+        return tf.squeeze(y1 * y2, axis = 1) / tf.pow(tf.reduce_sum(self.volume()), tf.cast(n, tf.float32) / 2.)
 
-    # todo! add metrics think what they should accept as an input
-    def compile(self, optimizer, hamiltonian: QFTHamiltonian, metrics=None, **kwargs):
+    def compile(self, optimizer, hamiltonian: QFTHamiltonian, **kwargs):
         super().compile(optimizer=optimizer, metrics=None, **kwargs)
 
         self.gradient_accumulators = None
@@ -109,13 +113,12 @@ class QFTNeuralNet(keras.Model):
         x, n = data
 
         with tf.GradientTape() as tape:
-            loss = self.hamiltonian.local_energy(x, n, self, training=True)
-            if self.optimizer is not None:
-                loss = self.optimizer.scale_loss(loss)
-            self.add_loss(loss)
-
-        gradients = tape.gradient(loss, self.trainable_variables)
+            loss = tf.reduce_mean(self.hamiltonian.local_energy(x, n, self, training=True))
         
+        gradients = tape.gradient(loss, self.trainable_variables)
+
+        tf.debugging.check_numerics(loss, message=f"NaN loss for: {x}, {n}")
+
         if self.gradient_accumulators is None:
             self.gradient_accumulators = [
                 tf.Variable(tf.zeros_like(var), trainable=False)
@@ -125,7 +128,16 @@ class QFTNeuralNet(keras.Model):
         for acc, grad in zip(self.gradient_accumulators, gradients): # type: ignore
             acc.assign_add(grad)
 
-        return {m.name: m.result() for m in self.metrics}
+        self.loss_tracker.update_state(loss)
+        self.energy_tracker.update_state(loss)
+        self.particle_tracker.update_state(tf.reduce_mean(n))
+        
+        metrics_dict = {m.name: m.result() for m in self.metrics}
+        metrics_dict[self.loss_tracker.name] = self.loss_tracker.result()
+        metrics_dict[self.particle_tracker.name] = self.particle_tracker.result()
+        metrics_dict[self.energy_tracker.name] = self.energy_tracker.result()
+
+        return metrics_dict
 
     def on_epoch_end(self, epoch, logs=None):
         averaged_gradients = [
