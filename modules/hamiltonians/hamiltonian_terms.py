@@ -9,6 +9,11 @@ from modules.qft_problem import QFTProblem
 @dataclass
 class KineticTerm:
     mass: float
+    
+    epsilon: float = 1e-10
+    """
+    Epsilon that is added to logarithm to prevent overflows
+    """
 
     def local_energy(self, x_n: tf.Tensor, n_s: npt.NDArray, model: QFTProblem, training = False) -> tf.Tensor:
     # with tf.GradientTape() as tape2:
@@ -16,7 +21,7 @@ class KineticTerm:
             tape1.watch(x_n)
             # tape2.watch(x_n)
             psi_n = model.get_amplitude(x_n, n_s, training=training)
-            psi_n_log = tf.math.log(psi_n)
+            psi_n_log = tf.math.log(psi_n + self.epsilon)
 
         gradient = tape1.gradient(psi_n_log, x_n)
 

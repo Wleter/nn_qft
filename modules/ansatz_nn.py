@@ -7,8 +7,8 @@ import keras
 from modules.qft_problem import QFTHamiltonian
 
 class DeepSets(keras.Model):
-    def __init__(self, hidden_neurons, hidden_layers_phi, hidden_layers_rho, input_dim = 2):
-        super(DeepSets, self).__init__()
+    def __init__(self, hidden_neurons, hidden_layers_phi, hidden_layers_rho, input_dim = 2, **kwargs):
+        super(DeepSets, self).__init__(**kwargs)
 
         self.hidden_neurons = hidden_neurons
         self.hidden_layers_phi = hidden_layers_phi
@@ -61,8 +61,31 @@ def x_difference(x_n: tf.Tensor, mask_n: tf.Tensor) -> tuple[tf.Tensor, tf.Tenso
 
     return x_diff, mask_ij
 
+class ParticleNoReg(keras.Model):
+    def __init__(self, c_mean: float, c_diff: float, slope: float):
+        super(ParticleNoReg, self).__init__()
+
+        self.q1 =  self.add_weight(initializer = keras.initializers.Constant(c_mean - c_diff / 2), trainable = True, name = "q1")
+        self.q2 =  self.add_weight(initializer = keras.initializers.Constant(c_mean + c_diff / 2), trainable = True, name = "q1")
+        self.slope =  self.add_weight(initializer = keras.initializers.Constant(slope), trainable = True, name = "q1")
+        
+        
+        # self.q1 = tf.Variable(c_mean + c_diff / 2, trainable = True, name = "q1")
+        # self.q2 = tf.Variable(c_mean - c_diff / 2, trainable = True, name = "q2")
+        # self.slope = tf.Variable(slope, trainable = True, name = "slope")
+
+    def call(self, n, training = False):
+        return tf.sigmoid(self.slope * (n - self.q1)) * tf.sigmoid(-self.slope * (n - self.q2))
+
 class QFTNeuralNet(keras.Model):
-    def __init__(self, volume: npt.NDArray, ds1: DeepSets, ds2: DeepSets, steps_per_epoch = 1):
+    def __init__(
+            self, 
+            volume: npt.NDArray, 
+            ds1: DeepSets, 
+            ds2: DeepSets, 
+            steps_per_epoch = 1, 
+            regularization = ParticleNoReg(3., 2., 5)
+        ):
         super(QFTNeuralNet, self).__init__()
 
         self.volume_arr = np.astype(volume, np.float32)
@@ -76,6 +99,7 @@ class QFTNeuralNet(keras.Model):
 
         self.ds1 = ds1
         self.ds2 = ds2
+        self.regularization = regularization
 
         self.gradient_accumulators = None
         self.steps_per_epoch = steps_per_epoch
@@ -100,7 +124,11 @@ class QFTNeuralNet(keras.Model):
         x_diff, mask_ij = x_difference(x_norm, mask_n)
         y2 = self.ds2(x_diff, mask_ij, training=training)
 
-        return tf.squeeze(y1 * y2, axis = 1) / tf.pow(tf.reduce_sum(self.volume()), tf.cast(n, tf.float32) / 2.)
+        n_float = tf.cast(n, tf.float32)
+
+        reg = self.regularization(n_float, training = training)
+
+        return reg / tf.pow(tf.reduce_sum(self.volume()), n_float / 2.) * tf.squeeze(y1 * y2, axis = 1)
 
     def compile(self, optimizer, hamiltonian: QFTHamiltonian, **kwargs):
         super().compile(optimizer=optimizer, metrics=None, **kwargs)
@@ -117,7 +145,11 @@ class QFTNeuralNet(keras.Model):
         
         gradients = tape.gradient(loss, self.trainable_variables)
 
-        tf.debugging.check_numerics(loss, message=f"NaN loss for: {x}, {n}")
+        # try:
+        #     tf.debugging.check_numerics(loss, message=f"NaN loss")
+        # except Exception:
+        #     tf.print("NaN loss for", x, n, summarize=-1)
+        #     raise Exception
 
         if self.gradient_accumulators is None:
             self.gradient_accumulators = [
@@ -126,6 +158,11 @@ class QFTNeuralNet(keras.Model):
             ]
 
         for acc, grad in zip(self.gradient_accumulators, gradients): # type: ignore
+            # try:
+            #     tf.debugging.check_numerics(grad, message=f"NaN gradient")
+            # except:
+            #     tf.print("NaN gradient for", x, n, summarize=-1)
+            #     raise Exception
             acc.assign_add(grad)
 
         self.loss_tracker.update_state(loss)
@@ -139,7 +176,7 @@ class QFTNeuralNet(keras.Model):
 
         return metrics_dict
 
-    def on_epoch_end(self, epoch, logs=None):
+    def on_epoch_end(self):
         averaged_gradients = [
             acc / tf.cast(self.steps_per_epoch, tf.float32) # type: ignore
             for acc in self.gradient_accumulators
@@ -148,3 +185,18 @@ class QFTNeuralNet(keras.Model):
 
         for acc in self.gradient_accumulators:
             acc.assign(tf.zeros_like(acc))
+
+    def fit(self, *args, **kwargs):
+        callbacks = kwargs.get('callbacks', [])
+        if callbacks is None:
+            callbacks = []
+
+        callbacks.append(ApplyGradientCallback())
+
+        kwargs['callbacks'] = callbacks
+
+        return super().fit(*args, **kwargs)
+    
+class ApplyGradientCallback(tf.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, logs=None):
+        self.model.on_epoch_end()
