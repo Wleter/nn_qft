@@ -35,3 +35,10 @@ class QFTHamiltonian(Protocol):
          - returns [nBatch]
         """
         ...
+    
+    def jastrow_cusp(self, x_ij: tf.Tensor, mask_ij: tf.Tensor, mask_n: tf.Tensor, volume: npt.NDArray) -> tf.Tensor | None:
+        """
+        Returns the jastrow factor cusp tensor [nBatch] needed for infinite contact potential values
+        or None if no such potential is needed.
+        """
+        return None

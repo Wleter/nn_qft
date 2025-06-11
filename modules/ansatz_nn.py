@@ -79,13 +79,15 @@ class ParticleNoReg(keras.Model):
 
 class QFTNeuralNet(keras.Model):
     def __init__(
-            self, 
-            volume: npt.NDArray, 
-            ds1: DeepSets, 
-            ds2: DeepSets, 
-            steps_per_epoch = 1, 
-            regularization = ParticleNoReg(3., 2., 5)
-        ):
+        self, 
+        volume: npt.NDArray, 
+        ds1: DeepSets, 
+        ds2: DeepSets, 
+        hamiltonian: QFTHamiltonian,
+        is_periodic: bool,
+        steps_per_epoch = 1, 
+        regularization = ParticleNoReg(2., 0.3, 0.3),
+    ):
         super(QFTNeuralNet, self).__init__()
 
         self.volume_arr = np.astype(volume, np.float32)
@@ -100,6 +102,9 @@ class QFTNeuralNet(keras.Model):
         self.ds1 = ds1
         self.ds2 = ds2
         self.regularization = regularization
+        
+        self.hamiltonian = hamiltonian
+        self.is_periodic = is_periodic
 
         self.gradient_accumulators = None
         self.steps_per_epoch = steps_per_epoch
@@ -121,21 +126,28 @@ class QFTNeuralNet(keras.Model):
 
         y1 = self.ds1(x_norm, mask_n, training=training)
 
-        x_diff, mask_ij = x_difference(x_norm, mask_n)
-        y2 = self.ds2(x_diff, mask_ij, training=training)
+        x_ij, mask_ij = x_difference(x_norm, mask_n)
+        y2 = self.ds2(x_ij, mask_ij, training=training)
 
         n_float = tf.cast(n, tf.float32)
 
         reg = self.regularization(n_float, training = training)
 
+        cusp = self.hamiltonian.jastrow_cusp(x_ij, mask_ij, mask_n, self.volume_arr)
+        if cusp is not None:
+            reg *= tf.cast(cusp, tf.float32)
+
+        if not self.is_periodic:
+            cutoff = tf.cast(tf.reduce_prod(x_norm * (1. - x_norm), axis = [1, 2]), tf.float32)
+            cutoff *= tf.pow(30. / tf.reduce_sum(self.volume()), n_float / 2.)
+            reg *= cutoff
+
         return reg / tf.pow(tf.reduce_sum(self.volume()), n_float / 2.) * tf.squeeze(y1 * y2, axis = 1)
 
-    def compile(self, optimizer, hamiltonian: QFTHamiltonian, **kwargs):
+    def compile(self, optimizer, **kwargs):
         super().compile(optimizer=optimizer, metrics=None, **kwargs)
 
         self.gradient_accumulators = None
-
-        self.hamiltonian = hamiltonian
 
     def train_step(self, data):
         x, n = data
@@ -145,12 +157,6 @@ class QFTNeuralNet(keras.Model):
         
         gradients = tape.gradient(loss, self.trainable_variables)
 
-        # try:
-        #     tf.debugging.check_numerics(loss, message=f"NaN loss")
-        # except Exception:
-        #     tf.print("NaN loss for", x, n, summarize=-1)
-        #     raise Exception
-
         if self.gradient_accumulators is None:
             self.gradient_accumulators = [
                 tf.Variable(tf.zeros_like(var), trainable=False)
@@ -158,11 +164,6 @@ class QFTNeuralNet(keras.Model):
             ]
 
         for acc, grad in zip(self.gradient_accumulators, gradients): # type: ignore
-            # try:
-            #     tf.debugging.check_numerics(grad, message=f"NaN gradient")
-            # except:
-            #     tf.print("NaN gradient for", x, n, summarize=-1)
-            #     raise Exception
             acc.assign_add(grad)
 
         self.loss_tracker.update_state(loss)
