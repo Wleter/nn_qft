@@ -69,11 +69,6 @@ class ParticleNoReg(keras.Model):
         self.q2 =  self.add_weight(initializer = keras.initializers.Constant(c_mean + c_diff / 2), trainable = True, name = "q1")
         self.slope =  self.add_weight(initializer = keras.initializers.Constant(slope), trainable = True, name = "q1")
         
-        
-        # self.q1 = tf.Variable(c_mean + c_diff / 2, trainable = True, name = "q1")
-        # self.q2 = tf.Variable(c_mean - c_diff / 2, trainable = True, name = "q2")
-        # self.slope = tf.Variable(slope, trainable = True, name = "slope")
-
     def call(self, n, training = False):
         return tf.sigmoid(self.slope * (n - self.q1)) * tf.sigmoid(-self.slope * (n - self.q2))
 
@@ -120,8 +115,8 @@ class QFTNeuralNet(keras.Model):
         # x = x[:, :max_len, :]
         x_norm = x / self.volume_arr
 
-        mask_n = tf.sequence_mask(n, maxlen = x_norm.shape[1])
-        mask_n = tf.cast(mask_n, x_norm.dtype)
+        mask_n_bool = tf.sequence_mask(n, maxlen = x_norm.shape[1])
+        mask_n = tf.cast(mask_n_bool, x_norm.dtype)
         mask_n = tf.expand_dims(mask_n, -1)
 
         y1 = self.ds1(x_norm, mask_n, training=training)
@@ -138,7 +133,9 @@ class QFTNeuralNet(keras.Model):
             reg *= tf.cast(cusp, tf.float32)
 
         if not self.is_periodic:
-            cutoff = tf.cast(tf.reduce_prod(x_norm * (1. - x_norm), axis = [1, 2]), tf.float32)
+            cutoff = tf.where(mask_n_bool, tf.cast(tf.reduce_prod(x_norm * (1. - x_norm), axis = -1), tf.float32), tf.ones_like(mask_n_bool, dtype = tf.float32))
+
+            cutoff = tf.reduce_prod(cutoff, axis = 1)
             cutoff *= tf.pow(30. / tf.reduce_sum(self.volume()), n_float / 2.)
             reg *= cutoff
 
@@ -168,7 +165,7 @@ class QFTNeuralNet(keras.Model):
 
         self.loss_tracker.update_state(loss)
         self.energy_tracker.update_state(loss)
-        self.particle_tracker.update_state(tf.reduce_mean(n))
+        self.particle_tracker.update_state(tf.reduce_mean(tf.cast(n, tf.float32)))
         
         metrics_dict = {m.name: m.result() for m in self.metrics}
         metrics_dict[self.loss_tracker.name] = self.loss_tracker.result()
@@ -179,7 +176,7 @@ class QFTNeuralNet(keras.Model):
 
     def on_epoch_end(self):
         averaged_gradients = [
-            acc / tf.cast(self.steps_per_epoch, tf.float32) # type: ignore
+            acc / tf.cast(self.steps_per_epoch, tf.float32)
             for acc in self.gradient_accumulators
         ]
         self.optimizer.apply_gradients(zip(averaged_gradients, self.trainable_variables))

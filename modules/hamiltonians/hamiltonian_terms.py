@@ -20,7 +20,7 @@ class HamiltonianSum:
             cusp_h = h.jastrow_cusp(x_ij, mask_ij, mask_n, volume)
 
             if cusp_h is not None:
-                assert cusp is None, "Only one cusp inducing hamiltonian term allowed"
+                assert cusp is None, "Only one cusp inducing hamiltonian term is allowed"
 
                 cusp = cusp_h
 
@@ -90,15 +90,15 @@ class ContactPotential:
 
         masked_prod = tf.where(mask_ij[:, :, 0] > 0, x_ij_norm + 1. / (self.mass * self.g * vol), tf.ones_like(x_ij_norm))
 
-        n_max = mask_n.shape[1]
-        selberg = 1.
-        if self.g > 1e4:
-            selberg_factors = [2 * tf.math.lgamma(float(1 + j)) + tf.math.lgamma(float(2 + j)) - tf.math.lgamma(float(1 + n_max + j)) + vol \
-                for j in range(n_max)
-            ]
-            selberg_factors = tf.cast(tf.stack(selberg_factors, axis = -1), tf.float32)
-            selberg = -tf.reduce_sum(selberg_factors * tf.squeeze(mask_n, axis = -1), axis = -1) / 2.
+        # n_max = mask_n.shape[1]
+        # selberg = 1.
+        # if self.g > 1e4:
+        #     selberg_factors = [2 * tf.math.lgamma(float(1 + j)) + tf.math.lgamma(float(2 + j)) - tf.math.lgamma(float(1 + n_max + j)) + vol \
+        #         for j in range(n_max)
+        #     ]
+        #     selberg_factors = tf.cast(tf.stack(selberg_factors, axis = -1), tf.float32)
+        #     selberg = -tf.reduce_sum(selberg_factors * tf.squeeze(mask_n, axis = -1), axis = -1) / 2.
 
-            selberg = tf.exp(selberg)
+        #     selberg = tf.exp(selberg)
 
-        return tf.reduce_prod(masked_prod, axis = -1) * selberg
+        return tf.reduce_prod(masked_prod, axis = -1)# * selberg

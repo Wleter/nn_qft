@@ -129,8 +129,8 @@ def make_dataset(problem: QFTProblem, batch: int, n_max: int, n_init = 1, rng = 
     dataset = tf.data.Dataset.from_generator(
         metropolis_step,
         output_signature = (
-            tf.TensorSpec(shape=(batch, n_max, n_dim), dtype=tf.float32, name = "configuration"), # type: ignore
-            tf.TensorSpec(shape=(batch), dtype=tf.int32, name = "particle_no") # type: ignore
+            tf.TensorSpec(shape=(batch, n_max, n_dim), dtype=tf.float32, name = "configuration"),
+            tf.TensorSpec(shape=(batch), dtype=tf.int32, name = "particle_no")
         )
     )
 
