@@ -143,8 +143,8 @@ class QFTNeuralNet(keras.Model):
     def compile(self, optimizer, regularization_lr_modifier = 1., **kwargs):
         super().compile(optimizer=optimizer, metrics=None, **kwargs)
 
-        self.energy_psi_gradient_accum = None
-        self.psi_gradient_accum = None
+        self.energy_ln_psi_gradient_accum = None
+        self.ln_psi_gradient_accum = None
         self.regularization_lr_modifier = regularization_lr_modifier
 
     def train_step(self, data):
@@ -152,31 +152,31 @@ class QFTNeuralNet(keras.Model):
 
         energy = self.hamiltonian.local_energy(x, n)
         with tf.GradientTape(persistent=True) as tape:
-            psi = self.call(x, n, training = True)
+            ln_psi = tf.math.log(self.call(x, n, training = True))
 
-            loss_psi = tf.reduce_mean(energy * psi)
+            loss_ln_psi = tf.reduce_mean(energy * ln_psi)
 
-        energy_psi_gradient = tape.gradient(loss_psi, self.trainable_variables)
-        psi_gradient = tape.gradient(psi, self.trainable_variables)
+        energy_ln_psi_gradient = tape.gradient(loss_ln_psi, self.trainable_variables)
+        ln_psi_gradient = tape.gradient(ln_psi, self.trainable_variables)
 
         del tape
 
         energy = tf.reduce_mean(energy)
 
-        if self.energy_psi_gradient_accum is None:
-            self.energy_psi_gradient_accum = [
+        if self.energy_ln_psi_gradient_accum is None:
+            self.energy_ln_psi_gradient_accum = [
                 tf.Variable(tf.zeros_like(var), trainable=False)
-                for var in energy_psi_gradient
+                for var in energy_ln_psi_gradient
             ]
-        for acc, grad in zip(self.energy_psi_gradient_accum, energy_psi_gradient):
+        for acc, grad in zip(self.energy_ln_psi_gradient_accum, energy_ln_psi_gradient):
             acc.assign_add(grad)
 
-        if self.psi_gradient_accum is None:
-            self.psi_gradient_accum = [
+        if self.ln_psi_gradient_accum is None:
+            self.ln_psi_gradient_accum = [
                 tf.Variable(tf.zeros_like(var), trainable=False)
-                for var in psi_gradient
+                for var in ln_psi_gradient
             ]
-        for acc, grad in zip(self.psi_gradient_accum, psi_gradient):
+        for acc, grad in zip(self.ln_psi_gradient_accum, ln_psi_gradient):
             acc.assign_add(grad)
 
         self.loss_tracker.update_state(energy)
@@ -195,7 +195,7 @@ class QFTNeuralNet(keras.Model):
 
         gradients = [
             -2. * (e_psi - e_mean * psi)
-            for e_psi, psi in zip(self.energy_psi_gradient_accum, self.psi_gradient_accum)
+            for e_psi, psi in zip(self.energy_ln_psi_gradient_accum, self.ln_psi_gradient_accum)
         ]
 
         for grad, weight in zip(gradients, self.trainable_variables):
@@ -204,10 +204,10 @@ class QFTNeuralNet(keras.Model):
 
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
 
-        for acc in self.energy_psi_gradient_accum:
+        for acc in self.energy_ln_psi_gradient_accum:
             acc.assign(tf.zeros_like(acc))
 
-        for acc in self.psi_gradient_accum:
+        for acc in self.ln_psi_gradient_accum:
             acc.assign(tf.zeros_like(acc))
 
     def fit(self, *args, **kwargs):
