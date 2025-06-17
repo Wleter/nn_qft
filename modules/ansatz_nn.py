@@ -66,8 +66,8 @@ class ParticleNoReg(keras.Model):
         super(ParticleNoReg, self).__init__()
 
         self.q1 =  self.add_weight(initializer = keras.initializers.Constant(c_mean - c_diff / 2), trainable = True, name = "q1")
-        self.q2 =  self.add_weight(initializer = keras.initializers.Constant(c_mean + c_diff / 2), trainable = True, name = "q1")
-        self.slope =  self.add_weight(initializer = keras.initializers.Constant(slope), trainable = True, name = "q1")
+        self.q2 =  self.add_weight(initializer = keras.initializers.Constant(c_mean + c_diff / 2), trainable = True, name = "q2")
+        self.slope =  self.add_weight(initializer = keras.initializers.Constant(slope), trainable = True, name = "slope")
         
     def call(self, n, training = False):
         return tf.sigmoid(self.slope * (n - self.q1)) * tf.sigmoid(-self.slope * (n - self.q2))
@@ -80,8 +80,7 @@ class QFTNeuralNet(keras.Model):
         ds2: DeepSets, 
         hamiltonian: QFTHamiltonian,
         is_periodic: bool,
-        steps_per_epoch = 1, 
-        regularization = ParticleNoReg(2., 0.3, 0.3),
+        regularization = ParticleNoReg(2., 0.2, 3),
     ):
         super(QFTNeuralNet, self).__init__()
 
@@ -99,10 +98,10 @@ class QFTNeuralNet(keras.Model):
         self.regularization = regularization
         
         self.hamiltonian = hamiltonian
+        hamiltonian.accept(self)
         self.is_periodic = is_periodic
 
         self.gradient_accumulators = None
-        self.steps_per_epoch = steps_per_epoch
 
     def volume(self) -> npt.NDArray:
         return self.volume_arr
@@ -128,7 +127,7 @@ class QFTNeuralNet(keras.Model):
 
         reg = self.regularization(n_float, training = training)
 
-        cusp = self.hamiltonian.jastrow_cusp(x_ij, mask_ij, mask_n, self.volume_arr)
+        cusp = self.hamiltonian.jastrow_cusp(x_ij, mask_ij, n, x_norm.shape[1], self.volume_arr)
         if cusp is not None:
             reg *= tf.cast(cusp, tf.float32)
 
@@ -141,30 +140,47 @@ class QFTNeuralNet(keras.Model):
 
         return reg / tf.pow(tf.reduce_sum(self.volume()), n_float / 2.) * tf.squeeze(y1 * y2, axis = 1)
 
-    def compile(self, optimizer, **kwargs):
+    def compile(self, optimizer, regularization_lr_modifier = 1., **kwargs):
         super().compile(optimizer=optimizer, metrics=None, **kwargs)
 
-        self.gradient_accumulators = None
+        self.energy_psi_gradient_accum = None
+        self.psi_gradient_accum = None
+        self.regularization_lr_modifier = regularization_lr_modifier
 
     def train_step(self, data):
         x, n = data
 
-        with tf.GradientTape() as tape:
-            loss = tf.reduce_mean(self.hamiltonian.local_energy(x, n, self, training=True))
-        
-        gradients = tape.gradient(loss, self.trainable_variables)
+        energy = self.hamiltonian.local_energy(x, n)
+        with tf.GradientTape(persistent=True) as tape:
+            psi = self.call(x, n, training = True)
 
-        if self.gradient_accumulators is None:
-            self.gradient_accumulators = [
+            loss_psi = tf.reduce_mean(energy * psi)
+
+        energy_psi_gradient = tape.gradient(loss_psi, self.trainable_variables)
+        psi_gradient = tape.gradient(psi, self.trainable_variables)
+
+        del tape
+
+        energy = tf.reduce_mean(energy)
+
+        if self.energy_psi_gradient_accum is None:
+            self.energy_psi_gradient_accum = [
                 tf.Variable(tf.zeros_like(var), trainable=False)
-                for var in gradients
+                for var in energy_psi_gradient
             ]
-
-        for acc, grad in zip(self.gradient_accumulators, gradients): # type: ignore
+        for acc, grad in zip(self.energy_psi_gradient_accum, energy_psi_gradient):
             acc.assign_add(grad)
 
-        self.loss_tracker.update_state(loss)
-        self.energy_tracker.update_state(loss)
+        if self.psi_gradient_accum is None:
+            self.psi_gradient_accum = [
+                tf.Variable(tf.zeros_like(var), trainable=False)
+                for var in psi_gradient
+            ]
+        for acc, grad in zip(self.psi_gradient_accum, psi_gradient):
+            acc.assign_add(grad)
+
+        self.loss_tracker.update_state(energy)
+        self.energy_tracker.update_state(energy)
         self.particle_tracker.update_state(tf.reduce_mean(tf.cast(n, tf.float32)))
         
         metrics_dict = {m.name: m.result() for m in self.metrics}
@@ -175,13 +191,23 @@ class QFTNeuralNet(keras.Model):
         return metrics_dict
 
     def on_epoch_end(self):
-        averaged_gradients = [
-            acc / tf.cast(self.steps_per_epoch, tf.float32)
-            for acc in self.gradient_accumulators
-        ]
-        self.optimizer.apply_gradients(zip(averaged_gradients, self.trainable_variables))
+        e_mean = self.energy_tracker.result()
 
-        for acc in self.gradient_accumulators:
+        gradients = [
+            -2. * (e_psi - e_mean * psi)
+            for e_psi, psi in zip(self.energy_psi_gradient_accum, self.psi_gradient_accum)
+        ]
+
+        for grad, weight in zip(gradients, self.trainable_variables):
+            if "q1" in weight.name or "q2" in weight.name or "slope" in weight.name:
+                grad *= self.regularization_lr_modifier
+
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+
+        for acc in self.energy_psi_gradient_accum:
+            acc.assign(tf.zeros_like(acc))
+
+        for acc in self.psi_gradient_accum:
             acc.assign(tf.zeros_like(acc))
 
     def fit(self, *args, **kwargs):

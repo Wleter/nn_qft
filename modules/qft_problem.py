@@ -29,14 +29,17 @@ class QFTProblem(Protocol):
         ...
 
 class QFTHamiltonian(Protocol):
-    def local_energy(self, x_n: tf.Tensor, ns: npt.NDArray, model: QFTProblem, training = False) -> tf.Tensor:
+    def accept(self, model: QFTProblem):
+        ...
+
+    def local_energy(self, x_n: tf.Tensor, n_s: tf.Tensor, model: QFTProblem) -> tf.Tensor:
         """
         Gets the local energies of the configuration given current QFT model.
          - returns [nBatch]
         """
         ...
     
-    def jastrow_cusp(self, x_ij: tf.Tensor, mask_ij: tf.Tensor, mask_n: tf.Tensor, volume: npt.NDArray) -> tf.Tensor | None:
+    def jastrow_cusp(self, x_ij: tf.Tensor, mask_ij: tf.Tensor, n: tf.Tensor, n_max: float, volume: npt.NDArray) -> tf.Tensor | None:
         """
         Returns the jastrow factor cusp tensor [nBatch] needed for infinite contact potential values
         or None if no such potential is needed.

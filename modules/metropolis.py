@@ -61,14 +61,9 @@ class FockSpaceMetropolis:
         ratio = new_ampiltude / last_amplitude # type: ignore
         ratio = ratio.numpy()
 
-        with np.errstate(over='raise'):
-            try:
-                reject_add = np.clip(np.prod(volume) * np.abs(ratio) ** 2, 0, 1) < acceptance_rng
-                reject_remove = np.clip(np.abs(ratio) ** 2 / np.prod(volume), 0, 1) < acceptance_rng
-                reject_vary = np.clip(np.abs(ratio) ** 2, 0, 1) < acceptance_rng
-            except:
-                print(x_new_t, n_new, ratio)
-                raise Exception
+        reject_add = np.clip(np.prod(volume) * np.abs(ratio) ** 2, 0, 1) < acceptance_rng
+        reject_remove = np.clip(np.abs(ratio) ** 2 / np.prod(volume), 0, 1) < acceptance_rng
+        reject_vary = np.clip(np.abs(ratio) ** 2, 0, 1) < acceptance_rng
 
         reject_add = reject_add * add_mask
         reject_remove = reject_remove * remove_mask
