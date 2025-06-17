@@ -101,8 +101,6 @@ class QFTNeuralNet(keras.Model):
         hamiltonian.accept(self)
         self.is_periodic = is_periodic
 
-        self.gradient_accumulators = None
-
     def volume(self) -> npt.NDArray:
         return self.volume_arr
 
@@ -154,9 +152,9 @@ class QFTNeuralNet(keras.Model):
         with tf.GradientTape(persistent=True) as tape:
             ln_psi = tf.math.log(self.call(x, n, training = True))
 
-            loss_ln_psi = tf.reduce_mean(energy * ln_psi)
+            energy_ln_psi = tf.reduce_mean(energy * ln_psi)
 
-        energy_ln_psi_gradient = tape.gradient(loss_ln_psi, self.trainable_variables)
+        energy_ln_psi_gradient = tape.gradient(energy_ln_psi, self.trainable_variables)
         ln_psi_gradient = tape.gradient(ln_psi, self.trainable_variables)
 
         del tape
