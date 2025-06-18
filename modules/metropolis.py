@@ -6,7 +6,6 @@ from typing import Optional
 import tensorflow as tf
 from modules.qft_problem import ConfigurationBatch, QFTProblem
 
-# todo! still a little different results from without batching
 @dataclass(frozen = True)
 class FockSpaceMetropolis:
     problem: QFTProblem
@@ -69,13 +68,12 @@ class FockSpaceMetropolis:
         reject_remove = reject_remove * remove_mask
         reject_vary = reject_vary * vary_mask
 
-        x_new[reject_add, :, :] = configurations.x_n[reject_add, :, :]
-        x_new[reject_remove, :, :] = configurations.x_n[reject_remove, :, :]
-        x_new[reject_vary, :, :] = configurations.x_n[reject_vary, :, :]
+        reject = np.logical_or(np.logical_or(reject_add, reject_remove), reject_vary)
 
-        n_new[reject_add] = configurations.n_s[reject_add]
-        n_new[reject_remove] = configurations.n_s[reject_remove]
-        n_new[reject_vary] = configurations.n_s[reject_vary]
+        x_new[reject, :, :] = configurations.x_n[reject, :, :]
+        n_new[reject] = configurations.n_s[reject]
+
+        new_ampiltude = tf.where(reject, last_amplitude, new_ampiltude)
 
         return ConfigurationBatch(x_new, n_new), new_ampiltude
 

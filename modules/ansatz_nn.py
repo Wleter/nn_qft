@@ -62,15 +62,21 @@ def x_difference(x_n: tf.Tensor, mask_n: tf.Tensor) -> tuple[tf.Tensor, tf.Tenso
     return x_diff, mask_ij
 
 class ParticleNoReg(keras.Model):
-    def __init__(self, c_mean: float, c_diff: float, slope: float):
+    def __init__(self, c_mean: float, c_width: float, slope: float):
         super(ParticleNoReg, self).__init__()
 
-        self.q1 =  self.add_weight(initializer = keras.initializers.Constant(c_mean - c_diff / 2), trainable = True, name = "q1")
-        self.q2 =  self.add_weight(initializer = keras.initializers.Constant(c_mean + c_diff / 2), trainable = True, name = "q2")
-        self.slope =  self.add_weight(initializer = keras.initializers.Constant(slope), trainable = True, name = "slope")
+        self.q_mean =  self.add_weight(initializer = keras.initializers.Constant(c_mean), trainable = True, name = "q_mean")
+        self.q_width_inv =  self.add_weight(initializer = keras.initializers.Constant(1. / c_width), trainable = True, name = "q_inv_width")
+        self.slope_inv =  self.add_weight(initializer = keras.initializers.Constant(1. / slope), trainable = True, name = "inv_slope")
         
     def call(self, n, training = False):
-        return tf.sigmoid(self.slope * (n - self.q1)) * tf.sigmoid(-self.slope * (n - self.q2))
+        q_n_width = tf.math.log(1 + tf.exp(self.q_width_inv))
+        c_1 = 1. / 2. * (2. * self.q_mean - q_n_width)
+        c_2 = 1. / 2. * (2. * self.q_mean + q_n_width)
+        q_n_slope = tf.math.log(1 + tf.exp(self.slope_inv))
+        s = q_n_slope
+
+        return tf.sigmoid(-s * (n - c_1)) * tf.sigmoid(s * (n - c_2))
 
 class QFTNeuralNet(keras.Model):
     def __init__(
@@ -80,7 +86,8 @@ class QFTNeuralNet(keras.Model):
         ds2: DeepSets, 
         hamiltonian: QFTHamiltonian,
         is_periodic: bool,
-        regularization = ParticleNoReg(2., 0.2, 3),
+        regularization = ParticleNoReg(2., 0.2, 0.3),
+        epsilon: float = 1e-10
     ):
         super(QFTNeuralNet, self).__init__()
 
@@ -100,6 +107,8 @@ class QFTNeuralNet(keras.Model):
         self.hamiltonian = hamiltonian
         hamiltonian.accept(self)
         self.is_periodic = is_periodic
+
+        self.epsilon = epsilon
 
     def volume(self) -> npt.NDArray:
         return self.volume_arr
@@ -133,10 +142,10 @@ class QFTNeuralNet(keras.Model):
             cutoff = tf.where(mask_n_bool, tf.cast(tf.reduce_prod(x_norm * (1. - x_norm), axis = -1), tf.float32), tf.ones_like(mask_n_bool, dtype = tf.float32))
 
             cutoff = tf.reduce_prod(cutoff, axis = 1)
-            cutoff *= tf.pow(30. / tf.reduce_sum(self.volume()), n_float / 2.)
+            cutoff *= tf.pow(30. / tf.reduce_prod(self.volume()), n_float / 2.)
             reg *= cutoff
 
-        return reg / tf.pow(tf.reduce_sum(self.volume()), n_float / 2.) * tf.squeeze(y1 * y2, axis = 1)
+        return reg * tf.squeeze(y1 * y2, axis = 1) * tf.pow(tf.reduce_prod(self.volume()), -n_float / 2.)
 
     def compile(self, optimizer, regularization_lr_modifier = 1., **kwargs):
         super().compile(optimizer=optimizer, metrics=None, **kwargs)
@@ -150,7 +159,7 @@ class QFTNeuralNet(keras.Model):
 
         energy = self.hamiltonian.local_energy(x, n)
         with tf.GradientTape(persistent=True) as tape:
-            ln_psi = tf.math.log(self.call(x, n, training = True))
+            ln_psi = tf.math.log(self.call(x, n, training = True) + self.epsilon)
 
             energy_ln_psi = tf.reduce_mean(energy * ln_psi)
 
@@ -197,7 +206,7 @@ class QFTNeuralNet(keras.Model):
         ]
 
         for grad, weight in zip(gradients, self.trainable_variables):
-            if "q1" in weight.name or "q2" in weight.name or "slope" in weight.name:
+            if "q_mean" in weight.name or "q_inv_width" in weight.name or "inv_slope" in weight.name:
                 grad *= self.regularization_lr_modifier
 
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
