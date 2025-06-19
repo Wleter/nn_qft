@@ -18,14 +18,14 @@ class DeepSets(keras.Model):
         self.phi = keras.Sequential(
                 layers = [
                     keras.Input(shape=(self.input_dim,)),
-                    *(keras.layers.Dense(self.hidden_neurons, activation = "relu") for _ in range(self.hidden_layers_phi)),
+                    *(keras.layers.Dense(self.hidden_neurons, activation = "leaky_relu") for _ in range(self.hidden_layers_phi)),
                 ],
                 name = "phi",
         )
 
         self.rho = keras.Sequential(
                 layers = [
-                    *(keras.layers.Dense(self.hidden_neurons, activation = "relu") for _ in range(self.hidden_layers_phi)),
+                    *(keras.layers.Dense(self.hidden_neurons, activation = "leaky_relu") for _ in range(self.hidden_layers_phi)),
                     keras.layers.Dense(1, activation = "softplus")
                 ],
                 name = "rho",
@@ -71,12 +71,12 @@ class ParticleNoReg(keras.Model):
         
     def call(self, n, training = False):
         q_n_width = tf.math.log(1 + tf.exp(self.q_width_inv))
-        c_1 = 1. / 2. * (2. * self.q_mean - q_n_width)
-        c_2 = 1. / 2. * (2. * self.q_mean + q_n_width)
+        c_1 = (self.q_mean - q_n_width / 2.)
+        c_2 = (self.q_mean + q_n_width / 2.)
         q_n_slope = tf.math.log(1 + tf.exp(self.slope_inv))
         s = q_n_slope
 
-        return tf.sigmoid(-s * (n - c_1)) * tf.sigmoid(s * (n - c_2))
+        return tf.sigmoid(s * (n - c_1)) * tf.sigmoid(-s * (n - c_2))
 
 class QFTNeuralNet(keras.Model):
     def __init__(
@@ -131,7 +131,6 @@ class QFTNeuralNet(keras.Model):
         y2 = self.ds2(x_ij, mask_ij, training=training)
 
         n_float = tf.cast(n, tf.float32)
-
         reg = self.regularization(n_float, training = training)
 
         cusp = self.hamiltonian.jastrow_cusp(x_ij, mask_ij, n, x_norm.shape[1], self.volume_arr)
@@ -162,9 +161,10 @@ class QFTNeuralNet(keras.Model):
             ln_psi = tf.math.log(self.call(x, n, training = True) + self.epsilon)
 
             energy_ln_psi = tf.reduce_mean(energy * ln_psi)
+            ln_psi_mean = tf.reduce_mean(ln_psi)
 
         energy_ln_psi_gradient = tape.gradient(energy_ln_psi, self.trainable_variables)
-        ln_psi_gradient = tape.gradient(ln_psi, self.trainable_variables)
+        ln_psi_gradient = tape.gradient(ln_psi_mean, self.trainable_variables)
 
         del tape
 
@@ -201,13 +201,15 @@ class QFTNeuralNet(keras.Model):
         e_mean = self.energy_tracker.result()
 
         gradients = [
-            -2. * (e_psi - e_mean * psi)
+            2. * (e_psi - e_mean * psi)
             for e_psi, psi in zip(self.energy_ln_psi_gradient_accum, self.ln_psi_gradient_accum)
         ]
 
-        for grad, weight in zip(gradients, self.trainable_variables):
-            if "q_mean" in weight.name or "q_inv_width" in weight.name or "inv_slope" in weight.name:
-                grad *= self.regularization_lr_modifier
+        for i in range(len(gradients)):
+            if "q_mean" in self.trainable_variables[i].name \
+                or "q_inv_width" in self.trainable_variables[i].name \
+                or "inv_slope" in self.trainable_variables[i].name:
+                gradients[i] *= self.regularization_lr_modifier
 
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
 

@@ -5,6 +5,7 @@ import numpy.typing as npt
 import tensorflow as tf
 
 from modules.qft_problem import QFTProblem, QFTHamiltonian
+from modules.ansatz_nn import x_difference
 
 @dataclass
 class HamiltonianSum:
@@ -118,3 +119,59 @@ class ContactPotential:
             selberg = tf.exp(selberg)
 
         return tf.cast(tf.reduce_prod(masked_prod, axis = -1), tf.float32) * selberg
+
+@dataclass
+class InvSineSqrPotential:
+    mass: float
+    g: float
+
+    vol: float
+
+    epsilon: float = 1e-10
+
+    def accept(self, model: QFTProblem):
+        self.vol = np.prod(model.volume())
+
+    def local_energy(self, x_n: tf.Tensor, n_s: tf.Tensor) -> tf.Tensor:
+        mask_n_bool = tf.sequence_mask(n_s, maxlen = x_n.shape[1])
+        mask_n = tf.cast(mask_n_bool, x_n.dtype)
+        mask_n = tf.expand_dims(mask_n, -1)
+
+        x_ij, mask_ij = x_difference(x_n, mask_n)
+
+        w_ij = self.g * (np.pi / self.vol) ** 2 * tf.reduce_sum(1. / (tf.pow(tf.sin(np.pi * x_ij), 2) + self.epsilon) * mask_ij, axis = [1, 2])
+
+        return w_ij
+
+    def jastrow_cusp(self, x_ij: tf.Tensor, mask_ij: tf.Tensor, n: tf.Tensor, n_max: float, volume: npt.NDArray) -> tf.Tensor | None:
+        x_ij_norm = tf.sqrt(tf.reduce_sum(x_ij * x_ij, axis = -1))
+        lamb = 0.5 * (1. + np.sqrt(1. + 4. * self.mass * self.g))
+
+        masked_prod = tf.where(
+            mask_ij[:, :, 0] > 0, 
+            tf.pow(x_ij_norm * (1 - x_ij_norm), lamb), 
+            tf.ones_like(x_ij_norm)
+        )
+
+        return tf.reduce_prod(masked_prod, axis = -1)
+
+@dataclass
+class ParticleInteraction:
+    potential: Callable[[tf.Tensor], tf.Tensor]
+
+    def accept(self, model: QFTProblem):
+        pass
+
+    def local_energy(self, x_n: tf.Tensor, n_s: tf.Tensor) -> tf.Tensor:
+        mask_n_bool = tf.sequence_mask(n_s, maxlen = x_n.shape[1])
+        mask_n = tf.cast(mask_n_bool, x_n.dtype)
+        mask_n = tf.expand_dims(mask_n, -1)
+
+        x_ij, mask_ij = x_difference(x_n, mask_n)
+
+        w_ij = tf.reduce_sum(self.potential(x_ij) * mask_ij, axis = [1, 2])
+
+        return w_ij
+
+    def jastrow_cusp(self, x_ij: tf.Tensor, mask_ij: tf.Tensor, n: tf.Tensor, n_max: float, volume: npt.NDArray) -> tf.Tensor | None:
+        return None
